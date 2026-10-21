@@ -1615,7 +1615,7 @@ function testHtml( valueObj ) {
 		div = jQuery("<div></div>"),
 		fixture = jQuery("#qunit-fixture");
 
-	div.html( valueObj("<div id='parent_1'><div id='child_1'/></div><div id='parent_2'/>") );
+	div.html( valueObj("<div id='parent_1'><div id='child_1'></div></div><div id='parent_2'></div>") );
 	equal( div.children().length, 2, "Found children" );
 	equal( div.children().children().length, 1, "Found grandchild" );
 
@@ -2231,7 +2231,7 @@ test( "Guard against exceptions when clearing safeChildNodes", function() {
 	var div;
 
 	try {
-		div = jQuery("<div/><hr/><code/><b/>");
+		div = jQuery("<div></div><hr/><code></code><b></b>");
 	} catch(e) {}
 
 	ok( div && div.jquery, "Created nodes safely, guarded against exceptions on safeChildNodes[ -1 ]" );
@@ -2370,7 +2370,7 @@ test( "jQuery._evalUrl (#12838)", function() {
 		equal( ( input.url || input ).slice( -1 ), expectedArgument, message );
 		expectedArgument++;
 	};
-	jQuery("#qunit-fixture").append("<script src='1'/><script src='2'/>");
+	jQuery("#qunit-fixture").append("<script src='1'></script><script src='2'></script>");
 	equal( expectedArgument, 3, "synchronous execution" );
 
 	message = "custom implementation";
@@ -2379,7 +2379,7 @@ test( "jQuery._evalUrl (#12838)", function() {
 	jQuery.ajax = function( options ) {
 		strictEqual( options, {}, "Unexpected call to jQuery.ajax" );
 	};
-	jQuery("#qunit-fixture").append("<script src='3'/><script src='4'/>");
+	jQuery("#qunit-fixture").append("<script src='3'></script><script src='4'></script>");
 
 	jQuery.ajax = ajax;
 	jQuery._evalUrl = evalUrl;
@@ -2422,7 +2422,7 @@ test( "insertAfter, insertBefore, etc do not work when destination is original e
 test( "Index for function argument should be received (#13094)", 2, function() {
 	var i = 0;
 
-	jQuery("<div/><div/>").before(function( index ) {
+	jQuery("<div></div><div></div>").before(function( index ) {
 		equal( index, i++, "Index should be correct" );
 	});
 
@@ -2435,4 +2435,121 @@ test( "Make sure jQuery.fn.remove can work on elements in documentFragment", 1, 
 	jQuery( div ).remove();
 
 	equal( fragment.childNodes.length, 0, "div element was removed from documentFragment" );
+});
+
+test( "XHTML-style self-closing non-void tags are not expanded (gh-4642)", function() {
+
+	expect( 5 );
+
+	var div = jQuery("<div></div>");
+
+	div.html("<div/><div/>");
+	equal( div.children().length, 1, "html(): one child" );
+	equal( div.children().children().length, 1, "html(): one grandchild" );
+
+	div = jQuery("<div></div>").append("<div/><div/>");
+	equal( div.children().length, 1, "append(): one child" );
+	equal( div.children().children().length, 1, "append(): one grandchild" );
+
+	equal( jQuery("<div/><div/>").length, 1, "jQuery(): one top-level element" );
+});
+
+test( "Sanitized HTML doesn't get unsanitized", function() {
+
+	var container, i,
+		executed = {},
+		htmlStrings = [
+			// Thanks to Masato Kinugawa from Cure53 for providing the following test cases.
+			// Note: the xss() argument of each payload must equal its index in this array.
+			"<img alt=\"<x\" title=\"/><img src=url404 onerror=xss(0)>\">",
+			"<img alt=\"\n<x\" title=\"/>\n<img src=url404 onerror=xss(1)>\">",
+			"<style><style/><img src=url404 onerror=xss(2)>",
+			"<xmp><xmp/><img src=url404 onerror=xss(3)>",
+			"<title><title /><img src=url404 onerror=xss(4)>",
+			"<iframe><iframe/><img src=url404 onerror=xss(5)>",
+			"<noframes><noframes/><img src=url404 onerror=xss(6)>",
+			"<noscript><noscript/><img src=url404 onerror=xss(7)>",
+			"<foo\" alt=\"\" title=\"/><img src=url404 onerror=xss(8)>\">",
+			"<img alt=\"<x\" title=\"\" src=\"/><img src=url404 onerror=xss(9)>\">",
+			"<noscript/><img src=url404 onerror=xss(10)>",
+			"<option><style></option></select><img src=url404 onerror=xss(11)></style>"
+		];
+
+	expect( htmlStrings.length );
+
+	Globals.register("xss");
+	window.xss = function( index ) {
+		executed[ index ] = true;
+	};
+
+	container = jQuery("<div></div>").appendTo("#qunit-fixture");
+
+	for ( i = 0; i < htmlStrings.length; i++ ) {
+		jQuery("<div></div>").appendTo( container ).html( htmlStrings[ i ] );
+	}
+
+	stop();
+	setTimeout(function() {
+		for ( i = 0; i < htmlStrings.length; i++ ) {
+			ok( !executed[ i ], "htmlString #" + i + " doesn't execute the payload: " + htmlStrings[ i ] );
+		}
+		start();
+	}, 1000 );
+});
+
+test( "Sanitized HTML doesn't get unsanitized via html(), append() or jQuery()", function() {
+
+	var container, i,
+		executed = {},
+		payloads = [],
+
+		// Self-closing tags inside raw text / RCDATA elements are inert text; expanding
+		// them to "<tag></tag>" would close the element and expose the following markup.
+		// "{id}" is replaced by the index of the payload in the payloads array.
+		htmlStrings = [
+			"<style><style/><img src=url404 onerror=xss({id})>",
+			"<xmp><xmp/><img src=url404 onerror=xss({id})>",
+			"<title><title /><img src=url404 onerror=xss({id})>",
+			"<iframe><iframe/><img src=url404 onerror=xss({id})>",
+			"<noframes><noframes/><img src=url404 onerror=xss({id})>",
+			"<noscript><noscript/><img src=url404 onerror=xss({id})>",
+			"<noembed><noembed/><img src=url404 onerror=xss({id})>",
+			"<textarea><textarea/><img src=url404 onerror=xss({id})>",
+			"<noscript/><img src=url404 onerror=xss({id})>"
+		],
+		methods = {
+			"html()": function( html ) {
+				jQuery("<div></div>").appendTo( container ).html( html );
+			},
+			"append()": function( html ) {
+				jQuery("<div></div>").appendTo( container ).append( html );
+			},
+			"jQuery()": function( html ) {
+				jQuery( html ).appendTo( jQuery("<div></div>").appendTo( container ) );
+			}
+		};
+
+	expect( htmlStrings.length * 3 );
+
+	Globals.register("xss");
+	window.xss = function( index ) {
+		executed[ index ] = true;
+	};
+
+	container = jQuery("<div></div>").appendTo("#qunit-fixture");
+
+	jQuery.each( methods, function( name, method ) {
+		for ( i = 0; i < htmlStrings.length; i++ ) {
+			payloads.push( name + " " + htmlStrings[ i ].replace( "{id}", payloads.length ) );
+			method( htmlStrings[ i ].replace( "{id}", payloads.length - 1 ) );
+		}
+	});
+
+	stop();
+	setTimeout(function() {
+		for ( i = 0; i < payloads.length; i++ ) {
+			ok( !executed[ i ], "doesn't execute the payload: " + payloads[ i ] );
+		}
+		start();
+	}, 1000 );
 });
